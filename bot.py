@@ -75,8 +75,7 @@ async def cmd_start(message: Message):
         "• Open Library / Internet Archive\n"
         "• Project Gutenberg\n"
         "• Standard Ebooks\n"
-        "• Libgen\n"
-        "• Z-Library (if configured)"
+        "• Libgen"
     )
     await message.answer(welcome_text, parse_mode="HTML")
 

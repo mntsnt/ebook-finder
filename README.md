@@ -6,7 +6,7 @@ An asynchronous Telegram bot that searches multiple global digital libraries (Op
 
 ## Features
 
-- Multi-Source Search: Concurrent searching across Open Library / Internet Archive, Project Gutenberg, Standard Ebooks, Libgen, and Z-Library.
+- Multi-Source Search: Concurrent searching across Open Library / Internet Archive, Project Gutenberg, Standard Ebooks, and Libgen.
 - Clean Professional UI: Text-based interface without emojis or symbols.
 - Robust HTML Formatting: Safe against special characters, brackets, or underscores in book titles.
 - Memory Bounded: In-memory cache protects against memory leaks during 24/7 cloud deployment.

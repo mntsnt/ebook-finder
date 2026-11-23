@@ -8,7 +8,6 @@ import aiohttp
 from .providers.base import BookResult
 from .providers.gutenberg import GutenbergProvider
 from .providers.libgen import LibgenProvider
-from .providers.zlibrary import ZLibraryProvider
 from .providers.openlibrary import OpenLibraryProvider
 from .providers.standardebooks import StandardEbooksProvider
 import config
@@ -22,8 +21,7 @@ class SearchManager:
             GutenbergProvider(),
             OpenLibraryProvider(),
             StandardEbooksProvider(),
-            LibgenProvider(),
-            ZLibraryProvider()
+            LibgenProvider()
         ]
 
     async def search_all(self, query: str, limit_per_source: int = 4) -> List[BookResult]:
@@ -39,22 +37,17 @@ class SearchManager:
         return combined
 
     async def download_file(self, raw_url_or_ref: str, filename_hint: str) -> Optional[Path]:
-        """Downloads a book file from direct URL, Z-Library client, or resolves mirror gateways."""
+        """Downloads a book file from direct URL or resolves mirror gateways."""
         target_path = config.DOWNLOAD_DIR / filename_hint
 
-        # 1. Z-Library item managed by native EAPI client
-        if raw_url_or_ref.startswith("zlib_token:"):
-            reg_key = raw_url_or_ref.replace("zlib_token:", "", 1)
-            return await ZLibraryProvider.download_book(reg_key, target_path)
-
-        # 2. Libgen gateway mirror (library.lol)
+        # 1. Libgen gateway mirror (library.lol)
         direct_url = raw_url_or_ref
         if "library.lol" in raw_url_or_ref or "libgen" in raw_url_or_ref:
             resolved = await LibgenProvider.resolve_direct_download(raw_url_or_ref)
             if resolved:
                 direct_url = resolved
 
-        # 3. Stream download from resolved URL
+        # 2. Stream download from resolved URL
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"
         }

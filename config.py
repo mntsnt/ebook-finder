@@ -18,18 +18,6 @@ TELEGRAM_BOT_TOKEN = (
     or ""
 ).strip()
 
-# Z-Library settings (bipinkrish/Zlibrary-API & sertraline/zlibrary)
-# Can authenticate via Email & Password OR via Session Token (remix_userkey / remix_userid)
-ZLIB_EMAIL = os.getenv("ZLIB_EMAIL", "").strip()
-ZLIB_PASSWORD = os.getenv("ZLIB_PASSWORD", "").strip()
-REMIX_USERKEY = (
-    os.getenv("REMIX_USERKEY") 
-    or os.getenv("ZLIB_USER_KEY") 
-    or os.getenv("ZLIB_TOKEN") 
-    or ""
-).strip()
-REMIX_USERID = os.getenv("REMIX_USERID", "").strip()
-
 # Calibre conversion tool path (optional)
 CALIBRE_CONVERT_PATH = os.getenv("CALIBRE_CONVERT_PATH", "ebook-convert")
 
