@@ -1,166 +1,197 @@
+import aiohttp
 import asyncio
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 from .base import BaseBookProvider, BookResult
 import config
 
 logger = logging.getLogger(__name__)
 
-# Registry for active Z-Library book items
-zlib_books_registry = {}
+# Registry for active search results mapping to book details
+zlib_books_registry: Dict[str, dict] = {}
 
 class ZLibraryProvider(BaseBookProvider):
     name = "Z-Library"
 
+    # Known Z-Library EAPI mirror endpoints
+    BASE_DOMAINS = [
+        "https://singlelogin.re",
+        "https://z-library.sk",
+        "https://1lib.sk",
+        "https://zlibrary-global.se"
+    ]
+
     def __init__(self):
-        self.client = None
-        self._is_logged_in = False
+        self.active_domain = self.BASE_DOMAINS[0]
+        self.remix_userid = config.REMIX_USERID
+        self.remix_userkey = config.REMIX_USERKEY
+        self.is_authenticated = bool(self.remix_userkey)
         self._login_lock = asyncio.Lock()
 
-    async def _ensure_login(self) -> bool:
+    def get_cookies(self) -> Dict[str, str]:
+        cookies = {}
+        if self.remix_userkey:
+            cookies["remix_userkey"] = self.remix_userkey
+        if self.remix_userid:
+            cookies["remix_userid"] = self.remix_userid
+        return cookies
+
+    async def _ensure_auth(self) -> bool:
         """
-        Authenticates with Z-Library using bipinkrish/Zlibrary-API / sertraline/zlibrary.
-        Supports both:
-          1. Direct Token/Cookie auth (REMIX_USERKEY / REMIX_USERID)
-          2. Standard Email & Password login
+        Authenticates with Z-Library using either:
+        1. Token/Cookie (remix_userkey / remix_userid)
+        2. Email & Password via /eapi/user/login
         """
-        if self._is_logged_in and self.client:
+        if self.is_authenticated:
             return True
 
-        has_credentials = bool(config.ZLIB_EMAIL and config.ZLIB_PASSWORD)
+        has_creds = bool(config.ZLIB_EMAIL and config.ZLIB_PASSWORD)
         has_token = bool(config.REMIX_USERKEY)
 
-        if not has_credentials and not has_token:
+        if not has_creds and not has_token:
             return False
 
         async with self._login_lock:
-            if self._is_logged_in and self.client:
+            if self.is_authenticated:
                 return True
 
-            try:
-                import zlibrary
-                self.client = zlibrary.AsyncZlib()
+            if has_token:
+                self.remix_userkey = config.REMIX_USERKEY
+                self.remix_userid = config.REMIX_USERID
+                self.is_authenticated = True
+                logger.info("[ZLibraryProvider] Authenticated using REMIX_USERKEY token.")
+                return True
 
-                # If token (remix_userkey / remix_userid) is provided
-                if has_token:
-                    logger.info("[ZLibraryProvider] Authenticating via token (remix_userkey)...")
-                    # Set token attributes / cookies if supported by client
-                    if hasattr(self.client, "remix_userkey"):
-                        self.client.remix_userkey = config.REMIX_USERKEY
-                    if config.REMIX_USERID and hasattr(self.client, "remix_userid"):
-                        self.client.remix_userid = config.REMIX_USERID
-
-                    # If client has session/cookies dict
-                    if hasattr(self.client, "cookies") and isinstance(self.client.cookies, dict):
-                        self.client.cookies["remix_userkey"] = config.REMIX_USERKEY
-                        if config.REMIX_USERID:
-                            self.client.cookies["remix_userid"] = config.REMIX_USERID
-
-                    self._is_logged_in = True
-                    return True
-
-                # If credentials (email/password) are provided
-                if has_credentials:
-                    logger.info("[ZLibraryProvider] Logging in with email/password...")
-                    await self.client.login(config.ZLIB_EMAIL, config.ZLIB_PASSWORD)
-                    self._is_logged_in = True
-                    logger.info("[ZLibraryProvider] Logged in successfully.")
-                    return True
-
-            except Exception as e:
-                logger.warning(
-                    f"[ZLibraryProvider] Could not authenticate with Z-Library API: {e}. "
-                    "Please verify your credentials or REMIX_USERKEY."
-                )
-                self.client = None
-                self._is_logged_in = False
-                return False
+            # Attempt EAPI login with credentials across domains
+            for domain in self.BASE_DOMAINS:
+                url = f"{domain}/eapi/user/login"
+                data = {"email": config.ZLIB_EMAIL, "password": config.ZLIB_PASSWORD}
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(url, data=data, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                            if resp.status == 200:
+                                res_json = await resp.json()
+                                if res_json.get("success"):
+                                    user_data = res_json.get("user", {})
+                                    self.remix_userkey = user_data.get("remix_userkey")
+                                    self.remix_userid = str(user_data.get("id", ""))
+                                    self.active_domain = domain
+                                    self.is_authenticated = True
+                                    logger.info(f"[ZLibraryProvider] Successfully logged into {domain}")
+                                    return True
+                except Exception as e:
+                    logger.debug(f"[ZLibraryProvider] Login attempt on {domain} failed: {e}")
+                    continue
 
         return False
 
     async def search(self, query: str, limit: int = 5) -> List[BookResult]:
-        """Searches Z-Library."""
-        if not await self._ensure_login():
+        """Queries Z-Library EAPI book search."""
+        if not await self._ensure_auth():
             return []
 
         results: List[BookResult] = []
-        try:
-            paginator = await self.client.search(q=query, count=limit)
-            items = await paginator.next()
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
 
-            if not items and hasattr(paginator, "result") and paginator.result:
-                items = paginator.result
+        for domain in self.BASE_DOMAINS:
+            url = f"{domain}/eapi/book/search"
+            payload = {"message": query, "limit": limit}
+            try:
+                async with aiohttp.ClientSession(headers=headers, cookies=self.get_cookies()) as session:
+                    async with session.post(url, data=payload, timeout=aiohttp.ClientTimeout(total=12)) as resp:
+                        if resp.status != 200:
+                            continue
+                        data = await resp.json()
+                        books = data.get("books", [])
 
-            for idx, item in enumerate(items[:limit]):
-                if isinstance(item, dict):
-                    title = item.get("name") or item.get("title", "Untitled")
-                    authors_val = item.get("author") or item.get("authors") or []
-                    ext = str(item.get("extension", "epub")).lower()
-                    size_str = str(item.get("size") or item.get("filesizeString", ""))
-                    cover_url = item.get("cover")
-                    book_id = f"zlib:{item.get('id', idx)}"
-                else:
-                    title = getattr(item, "name", None) or getattr(item, "title", "Untitled")
-                    authors_val = getattr(item, "author", None) or getattr(item, "authors", [])
-                    ext = str(getattr(item, "extension", "epub")).lower()
-                    size_str = str(getattr(item, "size", ""))
-                    cover_url = getattr(item, "cover", None)
-                    book_id = f"zlib:{getattr(item, 'id', idx)}"
+                        for item in books[:limit]:
+                            book_id = f"zlib:{item.get('id')}"
+                            hash_val = item.get("hash", "")
+                            title = item.get("title", "Untitled")
+                            author = item.get("author", "Unknown")
+                            ext = str(item.get("extension", "epub")).lower()
+                            size_str = item.get("filesizeString", "")
+                            cover_url = item.get("cover")
 
-                if isinstance(authors_val, str):
-                    authors = [a.strip() for a in authors_val.split(",") if a.strip()]
-                elif isinstance(authors_val, list):
-                    authors = [
-                        a.get("author") if isinstance(a, dict) and "author" in a else str(a)
-                        for a in authors_val
-                    ]
-                else:
-                    authors = []
+                            reg_key = f"{item.get('id')}_{hash_val}"
+                            zlib_books_registry[reg_key] = {
+                                "id": item.get("id"),
+                                "hash": hash_val,
+                                "domain": domain,
+                                "extension": ext,
+                                "title": title
+                            }
 
-                reg_key = f"{book_id}:{ext}"
-                zlib_books_registry[reg_key] = item
+                            formats = {ext: f"zlib_token:{reg_key}"}
 
-                formats = {ext: f"zlib_token:{reg_key}"}
+                            results.append(
+                                BookResult(
+                                    id=book_id,
+                                    title=title,
+                                    authors=[author] if author else [],
+                                    source=self.name,
+                                    formats=formats,
+                                    cover_url=cover_url,
+                                    filesize_str=size_str,
+                                    language=item.get("language", "English")
+                                )
+                            )
 
-                results.append(
-                    BookResult(
-                        id=book_id,
-                        title=title,
-                        authors=authors,
-                        source=self.name,
-                        formats=formats,
-                        cover_url=cover_url,
-                        filesize_str=size_str
-                    )
-                )
-        except Exception as e:
-            logger.error(f"[ZLibraryProvider] Search error: {e}")
+                        if results:
+                            self.active_domain = domain
+                            break
+            except Exception as e:
+                logger.debug(f"[ZLibraryProvider] Search on {domain} error: {e}")
+                continue
 
         return results
 
     @classmethod
     async def download_book(cls, reg_key: str, target_path: Path) -> Optional[Path]:
-        """Downloads the book using Z-Library client."""
-        item = zlib_books_registry.get(reg_key)
-        if not item:
+        """Downloads the requested book directly via Z-Library EAPI."""
+        book_info = zlib_books_registry.get(reg_key)
+        if not book_info:
             return None
 
+        book_id = book_info["id"]
+        book_hash = book_info["hash"]
+        domain = book_info.get("domain", "https://singlelogin.re")
+
+        url = f"{domain}/eapi/book/{book_id}/{book_hash}/file"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        cookies = {}
+        if config.REMIX_USERKEY:
+            cookies["remix_userkey"] = config.REMIX_USERKEY
+        if config.REMIX_USERID:
+            cookies["remix_userid"] = config.REMIX_USERID
+
         try:
-            target_obj = item
-            if hasattr(item, "fetch"):
-                target_obj = await item.fetch()
-
-            file_bytes = None
-            if hasattr(target_obj, "download"):
-                file_bytes = await target_obj.download()
-
-            if file_bytes and isinstance(file_bytes, (bytes, bytearray)):
-                with open(target_path, "wb") as f:
-                    f.write(file_bytes)
-                return target_path
+            async with aiohttp.ClientSession(headers=headers, cookies=cookies) as session:
+                async with session.get(url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=90)) as resp:
+                    if resp.status == 200:
+                        content_type = resp.headers.get("Content-Type", "")
+                        if "application/json" in content_type:
+                            data = await resp.json()
+                            dl_url = data.get("file", {}).get("downloadLink")
+                            if dl_url:
+                                async with session.get(dl_url, timeout=aiohttp.ClientTimeout(total=90)) as dl_resp:
+                                    if dl_resp.status == 200:
+                                        with open(target_path, "wb") as f:
+                                            while chunk := await dl_resp.content.read(64 * 1024):
+                                                f.write(chunk)
+                                        return target_path
+                        else:
+                            with open(target_path, "wb") as f:
+                                while chunk := await resp.content.read(64 * 1024):
+                                    f.write(chunk)
+                            return target_path
         except Exception as e:
-            logger.error(f"[ZLibraryProvider] Download error for {reg_key}: {e}")
+            logger.error(f"[ZLibraryProvider] Download error: {e}")
 
         return None
