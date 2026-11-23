@@ -60,6 +60,7 @@ def sanitize_filename(title: str, fallback_id: str) -> str:
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
+    logger.info(f"User {message.from_user.id} (@{message.from_user.username}) sent /start")
     welcome_text = (
         "<b>Welcome to EBook Finder Bot</b>\n\n"
         "Search global digital libraries and receive books directly in your chat in multiple formats (EPUB, PDF, MOBI, TXT).\n\n"
@@ -404,14 +405,34 @@ async def main():
     if not config.TELEGRAM_BOT_TOKEN or config.TELEGRAM_BOT_TOKEN == "your_telegram_bot_token_here":
         logger.error("=" * 60)
         logger.error("CRITICAL: TELEGRAM_BOT_TOKEN is missing or not configured!")
+        logger.error("Checked environment variables: TELEGRAM_BOT_TOKEN, BOT_TOKEN, TELEGRAM_TOKEN, TOKEN.")
         logger.error("Please add TELEGRAM_BOT_TOKEN to your platform's environment variables.")
         logger.error("=" * 60)
         # Keep process alive so the container passes health checks and logs remain visible
         while True:
             await asyncio.sleep(3600)
 
-    logger.info("Starting Telegram polling...")
-    await dp.start_polling(bot)
+    # Initialize bot with the active token
+    active_bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
+
+    try:
+        me = await active_bot.get_me()
+        logger.info(f"Bot connected to Telegram as @{me.username} (ID: {me.id})")
+    except Exception as e:
+        logger.error(f"Failed to authenticate with Telegram. Check your bot token: {e}")
+        while True:
+            await asyncio.sleep(3600)
+
+    # Delete any active webhook (e.g. from previous tests or third-party bot linking).
+    # If a webhook is active on the token, Telegram will NEVER deliver polling updates!
+    try:
+        await active_bot.delete_webhook(drop_pending_updates=True)
+        logger.info("Cleared any active Telegram webhook and flushed pending updates.")
+    except Exception as e:
+        logger.warning(f"Could not delete webhook: {e}")
+
+    logger.info("Starting Telegram polling loop...")
+    await dp.start_polling(active_bot)
 
 
 if __name__ == "__main__":

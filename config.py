@@ -9,8 +9,14 @@ BASE_DIR = Path(__file__).resolve().parent
 DOWNLOAD_DIR = BASE_DIR / "downloads"
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-# Telegram Bot Token
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+# Telegram Bot Token (supports all common environment variable names)
+TELEGRAM_BOT_TOKEN = (
+    os.getenv("TELEGRAM_BOT_TOKEN")
+    or os.getenv("BOT_TOKEN")
+    or os.getenv("TELEGRAM_TOKEN")
+    or os.getenv("TOKEN")
+    or ""
+).strip()
 
 # Z-Library settings (bipinkrish/Zlibrary-API & sertraline/zlibrary)
 # Can authenticate via Email & Password OR via Session Token (remix_userkey / remix_userid)
