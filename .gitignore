@@ -1,0 +1,27 @@
+# Environment variables (contains sensitive bot tokens & credentials)
+.env
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Temporary download files
+downloads/
+*.epub
+*.pdf
+*.mobi
+*.azw3
+
+# Logs
+*.log
+
+# OS-generated files
+.DS_Store
+Thumbs.db
