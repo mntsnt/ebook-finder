@@ -48,9 +48,11 @@ async def cmd_start(message: Message):
         "• `Clean Code Robert Martin`\n\n"
         "Or use: `/search <query>`\n\n"
         "⚡ *Supported Sources:*\n"
+        "• Open Library / Internet Archive (Millions of books & scans)\n"
         "• Project Gutenberg (Classic literature)\n"
+        "• Standard Ebooks (Curated high-quality modern editions)\n"
         "• Libgen (Non-fiction & fiction)\n"
-        "• Z-Library (if configured in .env)\n"
+        "• Z-Library (if configured in environment)\n"
     )
     await message.answer(welcome_text, parse_mode="Markdown")
 

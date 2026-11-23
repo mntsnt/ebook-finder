@@ -7,12 +7,16 @@ from .providers.base import BookResult
 from .providers.gutenberg import GutenbergProvider
 from .providers.libgen import LibgenProvider
 from .providers.zlibrary import ZLibraryProvider
+from .providers.openlibrary import OpenLibraryProvider
+from .providers.standardebooks import StandardEbooksProvider
 import config
 
 class SearchManager:
     def __init__(self):
         self.providers = [
             GutenbergProvider(),
+            OpenLibraryProvider(),
+            StandardEbooksProvider(),
             LibgenProvider(),
             ZLibraryProvider()
         ]
