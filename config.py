@@ -27,5 +27,8 @@ REMIX_USERID = os.getenv("REMIX_USERID", "").strip()
 # Calibre conversion tool path (optional)
 CALIBRE_CONVERT_PATH = os.getenv("CALIBRE_CONVERT_PATH", "ebook-convert")
 
+# HTTP Port for cloud health check (AletCloud, Koyeb, Render, Railway, etc.)
+PORT = int(os.getenv("PORT", "8080"))
+
 # Telegram max file upload limit (in bytes) - 50 MB standard limit
 TELEGRAM_FILE_SIZE_LIMIT = 50 * 1024 * 1024

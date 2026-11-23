@@ -1,19 +1,21 @@
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
-    DEBIAN_FRONTEND=noninteractive
+    DEBIAN_FRONTEND=noninteractive \
+    PORT=8080
 
 WORKDIR /app
 
-# Install git (required for git-based dependencies) and ca-certificates
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
     ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+
+EXPOSE 8080
 
 CMD ["python", "bot.py"]

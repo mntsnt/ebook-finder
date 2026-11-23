@@ -17,6 +17,7 @@ from aiogram.types import (
 )
 
 import config
+from aiohttp import web
 from services.search_manager import SearchManager
 from services.converter import EbookConverter
 from services.providers.base import BookResult
@@ -376,14 +377,40 @@ async def handle_convert_download(callback: CallbackQuery):
                 pass
 
 
-async def main():
-    if not config.TELEGRAM_BOT_TOKEN or config.TELEGRAM_BOT_TOKEN == "your_telegram_bot_token_here":
-        print("\n" + "=" * 60)
-        print("ERROR: Please set your TELEGRAM_BOT_TOKEN in environment variables before running.")
-        print("=" * 60 + "\n")
-        return
+async def handle_health(request):
+    return web.Response(text="EBook Finder Bot is running.\n", status=200)
 
-    print("Starting EBook Finder Bot...")
+
+async def start_health_server():
+    """Starts a lightweight HTTP server for cloud platforms (AletCloud, Koyeb, Render, Railway)."""
+    app = web.Application()
+    app.router.add_get("/", handle_health)
+    app.router.add_get("/health", handle_health)
+    app.router.add_get("/healthz", handle_health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", config.PORT)
+    await site.start()
+    logger.info(f"Health check HTTP server active on 0.0.0.0:{config.PORT}")
+
+
+async def main():
+    # Start HTTP server for cloud platform health checks
+    try:
+        await start_health_server()
+    except Exception as e:
+        logger.warning(f"Could not bind health check HTTP server on port {config.PORT}: {e}")
+
+    if not config.TELEGRAM_BOT_TOKEN or config.TELEGRAM_BOT_TOKEN == "your_telegram_bot_token_here":
+        logger.error("=" * 60)
+        logger.error("CRITICAL: TELEGRAM_BOT_TOKEN is missing or not configured!")
+        logger.error("Please add TELEGRAM_BOT_TOKEN to your platform's environment variables.")
+        logger.error("=" * 60)
+        # Keep process alive so the container passes health checks and logs remain visible
+        while True:
+            await asyncio.sleep(3600)
+
+    logger.info("Starting Telegram polling...")
     await dp.start_polling(bot)
 
 
